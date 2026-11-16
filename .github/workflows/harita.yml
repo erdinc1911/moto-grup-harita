@@ -1,0 +1,70 @@
+name: Türkiye haritası
+
+# Her ayın 1'inde, elle tetiklenince ve bu dosya değişince güncel harita üretilir.
+on:
+  schedule:
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/harita.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  harita:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: pmtiles aracını kur
+        run: go install github.com/protomaps/go-pmtiles@latest
+
+      - name: En yeni Protomaps dünya haritasını bul
+        id: kaynak
+        run: |
+          for i in $(seq 0 20); do
+            g=$(date -u -d "-$i day" +%Y%m%d)
+            if curl -sfI "https://build.protomaps.com/$g.pmtiles" > /dev/null; then
+              echo "tarih=$g" >> "$GITHUB_OUTPUT"
+              echo "Kaynak: $g"
+              exit 0
+            fi
+          done
+          echo "Son 20 günde derleme bulunamadı"; exit 1
+
+      - name: Türkiye bölgesini kes
+        run: |
+          kaynak="https://build.protomaps.com/${{ steps.kaynak.outputs.tarih }}.pmtiles"
+          # Türkiye ve kıyı çevresi. Zoom 14'e kadar; uygulama daha yakını büyüterek çizer.
+          ~/go/bin/go-pmtiles extract "$kaynak" turkiye.pmtiles \
+            --bbox=25.6,35.7,45.0,42.2 --maxzoom=14 --download-threads=8
+          boyut=$(stat -c%s turkiye.pmtiles)
+          echo "Boyut: $((boyut / 1048576)) MB"
+          # GitHub sürüm dosyası sınırı 2 GB; aşarsa daha az yakınlaştırmayla tekrar kes.
+          if [ "$boyut" -gt 1900000000 ]; then
+            rm turkiye.pmtiles
+            ~/go/bin/go-pmtiles extract "$kaynak" turkiye.pmtiles \
+              --bbox=25.6,35.7,45.0,42.2 --maxzoom=13 --download-threads=8
+            echo "Zoom 13 ile: $(( $(stat -c%s turkiye.pmtiles) / 1048576 )) MB"
+          fi
+
+      - name: Yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARIH: ${{ steps.kaynak.outputs.tarih }}
+        run: |
+          etiket="harita-$TARIH"
+          gh release delete "$etiket" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$etiket" turkiye.pmtiles --repo "$GITHUB_REPOSITORY" --latest \
+            --title "Türkiye haritası ($TARIH)" \
+            --notes "Moto Grup uygulamasının çevrimdışı haritası. Veri: © OpenStreetMap katkıcıları (ODbL), harita derlemesi: Protomaps."
+          # Eski haritaları sil, son 2 kalsın.
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[2:] | .[].tagName' |
+          while read -r e; do
+            gh release delete "$e" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done
