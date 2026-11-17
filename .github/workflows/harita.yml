@@ -1,4 +1,4 @@
-name: Türkiye haritası
+name: Türkiye haritası ve bölgeler
 
 # Her ayın 1'inde, elle tetiklenince ve bu dosya değişince güncel harita üretilir.
 on:
@@ -52,6 +52,24 @@ jobs:
             echo "Zoom 13 ile: $(( $(stat -c%s turkiye.pmtiles) / 1048576 )) MB"
           fi
 
+      - name: Bölgeleri kes
+        run: |
+          kaynak="https://build.protomaps.com/${{ steps.kaynak.outputs.tarih }}.pmtiles"
+          # Sınırlar uygulamadaki haritaBolgeleri listesiyle aynı olmalı.
+          while read -r kod bbox; do
+            ~/go/bin/go-pmtiles extract "$kaynak" "$kod.pmtiles" \
+              --bbox="$bbox" --maxzoom=14 --download-threads=8
+            echo "$kod: $(( $(stat -c%s "$kod.pmtiles") / 1048576 )) MB"
+          done <<'BOLGELER'
+          marmara 25.6,39.3,31.3,42.2
+          ege 25.6,36.4,31.6,40.0
+          akdeniz 28.8,35.7,37.8,38.5
+          icanadolu 29.8,36.9,38.4,41.1
+          karadeniz 30.5,39.8,42.6,42.2
+          doguanadolu 37.5,36.9,45.0,41.6
+          guneydogu 36.4,36.6,43.6,38.6
+          BOLGELER
+
       - name: Yayınla
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,7 +77,7 @@ jobs:
         run: |
           etiket="harita-$TARIH"
           gh release delete "$etiket" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$etiket" turkiye.pmtiles --repo "$GITHUB_REPOSITORY" --latest \
+          gh release create "$etiket" *.pmtiles --repo "$GITHUB_REPOSITORY" --latest \
             --title "Türkiye haritası ($TARIH)" \
             --notes "Moto Grup uygulamasının çevrimdışı haritası. Veri: © OpenStreetMap katkıcıları (ODbL), harita derlemesi: Protomaps."
           # Eski haritaları sil, son 2 kalsın.
