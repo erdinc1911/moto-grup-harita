@@ -9,6 +9,7 @@ Yöntem (adamfranco/curvature'a benzer):
   * Yarıçapı küçük (keskin) kısımların uzunluğu ağırlıklı toplanır:
       < 30 m: x2, < 60 m: x1.6, < 100 m: x1.3, < 175 m: x1, düz: 0
   * 2 km'den uzun düzlüklerde yol bölünür; böylece virajlı kısım ayrı görünür.
+  * Seviye km başına puana göre: < 650 virajlı, < 900 çok virajlı, üstü aşırı.
 """
 import gzip
 import json
@@ -17,8 +18,9 @@ import sys
 from datetime import date
 
 YER_YARICAPI = 6371000.0
-ESIK_PUAN = 500          # bu puanın altı "virajlı" sayılmaz
-EN_KISA = 1500           # metre
+ESIK_PUAN = 1000         # bu puanın altı listeye girmez
+ESIK_YOGUNLUK = 400      # km başına puan; altı "arada bir viraj" sayılır
+EN_KISA = 2000           # metre
 DUZLUK_BOL = 2000        # metre; bu kadar düz yol varsa ikiye böl
 EN_FAZLA_YOL = 12000
 SADELESTIR = 5.0         # metre; çizgi sadeleştirme toleransı
@@ -77,6 +79,10 @@ def parcalar(noktalar):
     """Bir yol zincirini virajlı parçalara böler. (bas, son, uzunluk, puan) üretir."""
     if len(noktalar) < 3:
         return [], noktalar
+    # Çizim titremesi sahte viraj üretmesin: önce 3 m toleransla sadeleştir.
+    noktalar = sadelestir(noktalar, 3.0)
+    if len(noktalar) < 3:
+        return [], noktalar
     xy, noktalar = seyrelt(yerel_xy(noktalar), noktalar)
     n = len(xy)
     if n < 3:
@@ -109,7 +115,9 @@ def parcalar(noktalar):
     for b, s in sonuc:
         uzunluk = sum(boy[b:s])
         puan = sum(boy[i] * agr[i] for i in range(b, s))
-        cikti.append((b, s, uzunluk, puan))
+        virajli = sum(boy[i] for i in range(b, s) if agr[i] > 0)
+        keskin = sum(boy[i] for i in range(b, s) if agr[i] >= 1.6)
+        cikti.append((b, s, uzunluk, puan, virajli, keskin))
     return cikti, noktalar
 
 
@@ -257,7 +265,7 @@ def oku(yollar_pbf, yerler_pbf):
     import osmium
 
     yollar = []
-    sehirler = YerIzgarasi(1.0)
+    sehirler = YerIzgarasi(0.5)   # il ve ilçe merkezleri
     koyler = YerIzgarasi(0.1)
 
     class YolOkuyucu(osmium.SimpleHandler):
@@ -298,7 +306,7 @@ def oku(yollar_pbf, yerler_pbf):
             if not tur or not ad:
                 return
             lat, lon = nd.location.lat, nd.location.lon
-            if tur == 'city':
+            if tur in ('city', 'town'):
                 sehirler.ekle(lat, lon, ad)
             if tur in ('city', 'town', 'village'):
                 koyler.ekle(lat, lon, ad)
@@ -313,8 +321,11 @@ def hesapla(yollar, sehirler, koyler):
     sonuc = []
     for ids, noktalar, sinif in zincirle(yollar):
         pr, temiz = parcalar(noktalar)
-        for k, (b, s, uzunluk, puan) in enumerate(pr):
+        for k, (b, s, uzunluk, puan, virajli, keskin) in enumerate(pr):
             if puan < ESIK_PUAN or uzunluk < EN_KISA:
+                continue
+            yogunluk = puan / uzunluk * 1000
+            if yogunluk < ESIK_YOGUNLUK:
                 continue
             p = temiz[b:s + 1]
             # Ad: zincirdeki ilk adlı parça.
@@ -334,14 +345,21 @@ def hesapla(yollar, sehirler, koyler):
                 's': sehirler.en_yakin(orta[0], orta[1]),
                 'k': round(puan),
                 'u': round(uzunluk),
+                'o': round(100 * virajli / uzunluk),
+                'x': round(100 * keskin / uzunluk),
+                '_sira': puan * min(2.0, yogunluk / 700),
                 'c': sinif,
                 'm': [round(orta[0], 4), round(orta[1], 4)],
                 'b': [round(min(lats), 4), round(min(lons), 4),
                       round(max(lats), 4), round(max(lons), 4)],
                 'p': kodla(sadelestir(p)),
             })
-    sonuc.sort(key=lambda x: -x['k'])
-    return sonuc[:EN_FAZLA_YOL]
+    # Hem uzun hem sık virajlı yollar öne çıksın.
+    sonuc.sort(key=lambda x: -x['_sira'])
+    sonuc = sonuc[:EN_FAZLA_YOL]
+    for x in sonuc:
+        del x['_sira']
+    return sonuc
 
 
 def main():
@@ -353,8 +371,9 @@ def main():
     with gzip.open(cikti, 'wt', encoding='utf-8') as f:
         json.dump(veri, f, ensure_ascii=False, separators=(',', ':'))
     print(f'{len(sonuc)} virajlı yol yazıldı', flush=True)
-    seviyeler = [sum(1 for x in sonuc if lo <= x['k'] < hi)
-                 for lo, hi in ((500, 1000), (1000, 2000), (2000, 10**9))]
+    # Seviye uygulamadakiyle aynı: km başına puan.
+    seviyeler = [sum(1 for x in sonuc if lo <= x['k'] * 1000 / x['u'] < hi)
+                 for lo, hi in ((0, 650), (650, 900), (900, 10**9))]
     print(f'Virajlı: {seviyeler[0]}, çok virajlı: {seviyeler[1]}, aşırı virajlı: {seviyeler[2]}')
 
 
