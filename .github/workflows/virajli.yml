@@ -1,0 +1,60 @@
+name: Virajlı yollar
+
+# Her ayın 2'sinde, elle tetiklenince ve hesaplama değişince güncel liste üretilir.
+on:
+  schedule:
+    - cron: '0 4 2 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/virajli.yml', 'tools/virajli.py']
+
+permissions:
+  contents: write
+
+jobs:
+  virajli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Araçları kur
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          pip install --quiet osmium
+
+      - name: Türkiye OSM verisini indir
+        run: |
+          curl -sfL --retry 3 -o turkiye.osm.pbf \
+            https://download.geofabrik.de/europe/turkey-latest.osm.pbf
+          echo "Boyut: $(( $(stat -c%s turkiye.osm.pbf) / 1048576 )) MB"
+
+      - name: Yolları ve yer adlarını ayıkla
+        run: |
+          osmium tags-filter turkiye.osm.pbf \
+            w/highway=trunk,primary,secondary,tertiary,unclassified \
+            -o yollar.osm.pbf --overwrite
+          osmium tags-filter turkiye.osm.pbf n/place=city,town,village \
+            -o yerler.osm.pbf --overwrite --omit-referenced
+          ls -la *.pbf
+
+      - name: Virajlı yolları hesapla
+        run: python3 tools/virajli.py yollar.osm.pbf yerler.osm.pbf virajli.json.gz
+
+      - name: Yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Boyut: $(( $(stat -c%s virajli.json.gz) / 1024 )) KB"
+          # Sabit etiket: uygulama hep aynı adresten indirir.
+          if gh release view virajli --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload virajli virajli.json.gz --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit virajli --repo "$GITHUB_REPOSITORY" \
+              --title "Virajlı yollar ($(date -u +%Y-%m-%d))" --latest=false
+          else
+            gh release create virajli virajli.json.gz --repo "$GITHUB_REPOSITORY" --latest=false \
+              --title "Virajlı yollar ($(date -u +%Y-%m-%d))" \
+              --notes "Moto Grup uygulamasının virajlı yol listesi. Veri: © OpenStreetMap katkıcıları (ODbL)."
+          fi
