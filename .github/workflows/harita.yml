@@ -80,9 +80,9 @@ jobs:
           gh release create "$etiket" *.pmtiles --repo "$GITHUB_REPOSITORY" --latest \
             --title "Türkiye haritası ($TARIH)" \
             --notes "Moto Grup uygulamasının çevrimdışı haritası. Veri: © OpenStreetMap katkıcıları (ODbL), harita derlemesi: Protomaps."
-          # Eski haritaları sil, son 2 kalsın.
+          # Eski haritaları sil, son 2 kalsın (virajlı yol listesine dokunma).
           gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
-            --jq 'sort_by(.createdAt) | reverse | .[2:] | .[].tagName' |
+            --jq 'map(select(.tagName | startswith("harita-"))) | sort_by(.createdAt) | reverse | .[2:] | .[].tagName' |
           while read -r e; do
             gh release delete "$e" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
           done
