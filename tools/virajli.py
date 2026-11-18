@@ -9,7 +9,8 @@ Yöntem (adamfranco/curvature'a benzer):
   * Yarıçapı küçük (keskin) kısımların uzunluğu ağırlıklı toplanır:
       < 30 m: x2, < 60 m: x1.6, < 100 m: x1.3, < 175 m: x1, düz: 0
   * 2 km'den uzun düzlüklerde yol bölünür; böylece virajlı kısım ayrı görünür.
-  * Seviye km başına puana göre: < 650 virajlı, < 900 çok virajlı, üstü aşırı.
+  * Seviye (l) km başına puana göre: < 900 virajlı, < 1100 çok virajlı, üstü aşırı.
+    Uygulama seviyeyi bu dosyadan okur; sınırlar burada değiştirilebilir.
 """
 import gzip
 import json
@@ -20,6 +21,7 @@ from datetime import date
 YER_YARICAPI = 6371000.0
 ESIK_PUAN = 1000         # bu puanın altı listeye girmez
 ESIK_YOGUNLUK = 400      # km başına puan; altı "arada bir viraj" sayılır
+SEVIYE_SINIRLARI = (900, 1100)  # km başına puan: çok virajlı, aşırı virajlı
 EN_KISA = 2000           # metre
 DUZLUK_BOL = 2000        # metre; bu kadar düz yol varsa ikiye böl
 EN_FAZLA_YOL = 12000
@@ -345,6 +347,7 @@ def hesapla(yollar, sehirler, koyler):
                 's': sehirler.en_yakin(orta[0], orta[1]),
                 'k': round(puan),
                 'u': round(uzunluk),
+                'l': 1 + sum(yogunluk >= s for s in SEVIYE_SINIRLARI),
                 'o': round(100 * virajli / uzunluk),
                 'x': round(100 * keskin / uzunluk),
                 '_sira': puan * min(2.0, yogunluk / 700),
@@ -371,9 +374,7 @@ def main():
     with gzip.open(cikti, 'wt', encoding='utf-8') as f:
         json.dump(veri, f, ensure_ascii=False, separators=(',', ':'))
     print(f'{len(sonuc)} virajlı yol yazıldı', flush=True)
-    # Seviye uygulamadakiyle aynı: km başına puan.
-    seviyeler = [sum(1 for x in sonuc if lo <= x['k'] * 1000 / x['u'] < hi)
-                 for lo, hi in ((0, 650), (650, 900), (900, 10**9))]
+    seviyeler = [sum(1 for x in sonuc if x['l'] == l) for l in (1, 2, 3)]
     print(f'Virajlı: {seviyeler[0]}, çok virajlı: {seviyeler[1]}, aşırı virajlı: {seviyeler[2]}')
 
 
