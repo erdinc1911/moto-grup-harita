@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/virajli.yml', 'tools/virajli.py']
+    paths: ['.github/workflows/virajli.yml', 'tools/virajli.py', 'tools/kameralar.py']
 
 permissions:
   contents: write
@@ -38,10 +38,15 @@ jobs:
             -o yollar.osm.pbf --overwrite
           osmium tags-filter turkiye.osm.pbf n/place=city,town,village \
             -o yerler.osm.pbf --overwrite --omit-referenced
+          osmium tags-filter turkiye.osm.pbf n/highway=speed_camera \
+            -o kameralar.osm.pbf --overwrite --omit-referenced
           ls -la *.pbf
 
       - name: Virajlı yolları hesapla
         run: python3 tools/virajli.py yollar.osm.pbf yerler.osm.pbf virajli.json.gz
+
+      - name: Sabit kameraları çıkar
+        run: python3 tools/kameralar.py kameralar.osm.pbf kameralar.json
 
       - name: Yayınla
         env:
@@ -50,11 +55,11 @@ jobs:
           echo "Boyut: $(( $(stat -c%s virajli.json.gz) / 1024 )) KB"
           # Sabit etiket: uygulama hep aynı adresten indirir.
           if gh release view virajli --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload virajli virajli.json.gz --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload virajli virajli.json.gz kameralar.json --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit virajli --repo "$GITHUB_REPOSITORY" \
               --title "Virajlı yollar ($(date -u +%Y-%m-%d))" --latest=false
           else
-            gh release create virajli virajli.json.gz --repo "$GITHUB_REPOSITORY" --latest=false \
+            gh release create virajli virajli.json.gz kameralar.json --repo "$GITHUB_REPOSITORY" --latest=false \
               --title "Virajlı yollar ($(date -u +%Y-%m-%d))" \
               --notes "Moto Grup uygulamasının virajlı yol listesi. Veri: © OpenStreetMap katkıcıları (ODbL)."
           fi
