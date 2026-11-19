@@ -52,6 +52,18 @@ jobs:
             echo "Zoom 13 ile: $(( $(stat -c%s turkiye.pmtiles) / 1048576 )) MB"
           fi
 
+      - name: Genel bakış haritası (uygulamanın içine gömülür)
+        run: |
+          # Tüm Türkiye, uzak yakınlaştırmalar: açılışta anında görünen harita.
+          ~/go/bin/go-pmtiles extract turkiye.pmtiles ozet.pmtiles --maxzoom=8
+          boyut=$(stat -c%s ozet.pmtiles)
+          echo "Özet zoom 8: $((boyut / 1048576)) MB"
+          if [ "$boyut" -gt 26000000 ]; then
+            rm ozet.pmtiles
+            ~/go/bin/go-pmtiles extract turkiye.pmtiles ozet.pmtiles --maxzoom=7
+            echo "Özet zoom 7: $(( $(stat -c%s ozet.pmtiles) / 1048576 )) MB"
+          fi
+
       - name: Bölgeleri kes
         run: |
           kaynak="https://build.protomaps.com/${{ steps.kaynak.outputs.tarih }}.pmtiles"
