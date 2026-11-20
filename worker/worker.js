@@ -359,7 +359,8 @@ let sonSurumZamani = 0;
 
 async function enYeniSurum(env) {
   if (sonSurum && Date.now() - sonSurumZamani < 5 * 60 * 1000) return sonSurum;
-  const y = await fetch(`https://api.github.com/repos/${UYGULAMA_DEPOSU}/releases/latest`, {
+  // "latest" ön sürümleri görmediği için son birkaç sürüme bakıp en büyüğünü al.
+  const y = await fetch(`https://api.github.com/repos/${UYGULAMA_DEPOSU}/releases?per_page=5`, {
     headers: {
       Authorization: `Bearer ${env.GITHUB_JETON}`,
       Accept: 'application/vnd.github+json',
@@ -367,11 +368,15 @@ async function enYeniSurum(env) {
     },
   });
   if (!y.ok) throw new Error(`GitHub ${y.status}`);
-  const r = await y.json();
-  const apk = (r.assets || []).find((a) => String(a.name).endsWith('.apk'));
-  const no = parseInt(String(r.tag_name || '').replace(/\D/g, ''), 10);
-  if (!apk || !no) throw new Error('sürüm bulunamadı');
-  sonSurum = { surum: no, url: apk.url, boyut: apk.size };
+  let en = null;
+  for (const r of await y.json()) {
+    if (r.draft) continue;
+    const apk = (r.assets || []).find((a) => String(a.name).endsWith('.apk'));
+    const no = parseInt(String(r.tag_name || '').replace(/\D/g, ''), 10);
+    if (apk && no && (!en || no > en.surum)) en = { surum: no, url: apk.url, boyut: apk.size };
+  }
+  if (!en) throw new Error('sürüm bulunamadı');
+  sonSurum = en;
   sonSurumZamani = Date.now();
   return sonSurum;
 }
