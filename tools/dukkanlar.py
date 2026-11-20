@@ -42,6 +42,8 @@ TUM_MARKALAR = [
 ]
 
 MOTO_KATEGORI = re.compile(r'motorcycle|motorbike|motor_?scooter|moped|scooter')
+# Dükkân olmayanlar: dernekler, kulüpler, sürücü kursları, araba kiralama, tekne.
+DISLA = re.compile(r'dernek|kulüb|kulub|\bclub\b|riders|federasyon|sürücü|surucu|rent a car|rentacar|oto kuaför|yacht|tekne|\bmarin')
 MOTO_AD = re.compile(r'motosiklet|motorsiklet|motorcycle|motobike|motorbike|scooter|\bmoto\b|moto[\s-]')
 
 
@@ -144,6 +146,9 @@ def main():
             continue
         ad_k = turk(ad)
         kat = kat or ''
+        if DISLA.search(ad_k):
+            sayac['dükkân değil (dernek, kurs...)'] += 1
+            continue
         moto_kat = bool(MOTO_KATEGORI.search(kat))
         moto_ad = bool(MOTO_AD.search(ad_k + ' ')) or any(m in ad_k + ' ' for m in MOTOR_MARKALARI)
         if not moto_kat:
