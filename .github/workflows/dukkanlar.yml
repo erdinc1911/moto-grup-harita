@@ -1,0 +1,49 @@
+name: Motosiklet dükkânları
+
+# Her ayın 3'ünde, elle tetiklenince ve araç değişince Overture Maps'ten
+# Türkiye'deki motosiklet satış, servis, yedek parça ve ekipman yerleri çekilir.
+on:
+  schedule:
+    - cron: '0 5 3 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/dukkanlar.yml', 'tools/dukkanlar.py']
+
+permissions:
+  contents: write
+
+jobs:
+  dukkanlar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Araçları kur
+        run: pip install --quiet duckdb
+
+      - name: En yeni Overture sürümünü bul
+        id: surum
+        run: |
+          s=$(aws s3 ls --no-sign-request s3://overturemaps-us-west-2/release/ | awk '{print $2}' | tr -d '/' | sort | tail -1)
+          echo "Overture sürümü: $s"
+          echo "ad=$s" >> "$GITHUB_OUTPUT"
+
+      - name: Dükkânları çıkar
+        run: python3 tools/dukkanlar.py "${{ steps.surum.outputs.ad }}" dukkanlar.json.gz
+
+      - name: Yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Boyut: $(( $(stat -c%s dukkanlar.json.gz) / 1024 )) KB"
+          not="Moto Grup uygulamasının motosiklet dükkânı listesi. Veri: Overture Maps Foundation (CDLA Permissive 2.0 / Apache 2.0; Foursquare, Meta, Microsoft ve diğerleri)."
+          if gh release view dukkanlar --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload dukkanlar dukkanlar.json.gz --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit dukkanlar --repo "$GITHUB_REPOSITORY" \
+              --title "Motosiklet dükkânları ($(date -u +%Y-%m-%d))" --latest=false
+          else
+            gh release create dukkanlar dukkanlar.json.gz --repo "$GITHUB_REPOSITORY" --latest=false \
+              --title "Motosiklet dükkânları ($(date -u +%Y-%m-%d))" --notes "$not"
+          fi
